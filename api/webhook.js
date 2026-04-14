@@ -27,7 +27,6 @@ export default async function handler(req, res) {
               lastName: "${lastName}",
               emails: [{ address: "${email}" }],
               phones: [{ number: "${phone}" }],
-              notes: "Price: ${price}",
               billingAddress: {
                 street1: "${address}"
               }
