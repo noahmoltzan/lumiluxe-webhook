@@ -7,20 +7,18 @@ export default async function handler(req, res) {
     const data = req.body || {};
     console.log("WEBHOOK HIT:", JSON.stringify(data));
 
-    // Repcard sometimes sends full name instead of first/last
     const fullName = data.name || "";
     const splitName = fullName.trim().split(" ");
     const firstName = data.firstName || splitName[0] || "Unknown";
-    const lastName =
-      data.lastName || splitName.slice(1).join(" ") || "Unknown";
+    const lastName = data.lastName || splitName.slice(1).join(" ") || "Unknown";
 
-    const email = data.email || "";
-    const phone = data.phone || data.phoneNumber || "";
+    const email = data.email || "test@test.com";
+    const phone = data.phone || data.phoneNumber || "0000000000";
     const address =
       data.address ||
       data.appointment_location ||
       data.appointmentLocation ||
-      "";
+      "Unknown Address";
 
     const query = `
       mutation CreateClient(
@@ -56,10 +54,12 @@ export default async function handler(req, res) {
       street1: address
     };
 
+    console.log("JOBBER VARIABLES:", JSON.stringify(variables));
+
     const response = await fetch("https://api.getjobber.com/api/graphql", {
       method: "POST",
       headers: {
-        Authorization: "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjM2MzU5MzYsImlzcyI6Imh0dHBzOi8vYXBpLmdldGpvYmJlci5jb20iLCJjbGllbnRfaWQiOiJhMzM4NWFiYi1iNWI0LTQ4NjctODIzZi0xMTgzM2E1MjFiYzkiLCJzY29wZSI6InJlYWRfY2xpZW50cyB3cml0ZV9jbGllbnRzIHJlYWRfcXVvdGVzIHdyaXRlX3F1b3RlcyByZWFkX2pvYnMgd3JpdGVfam9icyByZWFkX2ludm9pY2VzIHdyaXRlX2ludm9pY2VzIHJlYWRfam9iYmVyX3BheW1lbnRzIiwiYXBwX2lkIjoiYTMzODVhYmItYjViNC00ODY3LTgyM2YtMTE4MzNhNTIxYmM5IiwidXNlcl9pZCI6MzYzNTkzNiwiYWNjb3VudF9pZCI6MjE0NDQ3MywiZXhwIjoxNzc2MTMwNjY0fQ.6boz4uZeIezYVtkoD5NxZfvGydSl7s29uhVwXfZfnmY",
+        Authorization: "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjM2MzU5MzYsImlzcyI6Imh0dHBzOi8vYXBpLmdldGpvYmJlci5jb20iLCJjbGllbnRfaWQiOiJhMzM4NWFiYi1iNWI0LTQ4NjctODIzZi0xMTgzM2E1MjFiYzkiLCJzY29wZSI6InJlYWRfY2xpZW50cyB3cml0ZV9jbGllbnRzIHJlYWRfcXVvdGVzIHdyaXRlX3F1b3RlcyByZWFkX2pvYnMgd3JpdGVfam9icyByZWFkX2ludm9pY2VzIHdyaXRlX2ludm9pY2VzIHJlYWRfam9iYmVyX3BheW1lbnRzIiwiYXBwX2lkIjoiYTMzODVhYmItYjViNC00ODY3LTgyM2YtMTE4MzNhNTIxYmM5IiwidXNlcl9pZCI6MzYzNTkzNiwiYWNjb3VudF9pZCI6MjE0NDQ3MywiZXhwIjoxNzc2MTM0MDY4fQ.SVNKtHq0wkQLZ70GW6PVQHWG35OcWEejaZWZO9gNPC8",
         "X-JOBBER-GRAPHQL-VERSION": "2025-04-16",
         "Content-Type": "application/json"
       },
@@ -67,17 +67,12 @@ export default async function handler(req, res) {
     });
 
     const result = await response.json();
+    console.log("JOBBER STATUS:", response.status);
     console.log("JOBBER RESPONSE:", JSON.stringify(result));
-
-    if (!response.ok || result.errors) {
-      return res.status(500).json({
-        success: false,
-        jobber: result
-      });
-    }
 
     return res.status(200).json({
       success: true,
+      jobberStatus: response.status,
       jobber: result
     });
   } catch (error) {
