@@ -8,9 +8,9 @@ export default async function handler(req, res) {
     console.log("WEBHOOK HIT:", JSON.stringify(data));
 
     const fullName = data.name || "";
-    const splitName = fullName.trim().split(" ");
-    const firstName = data.firstName || splitName[0] || "Unknown";
-    const lastName = data.lastName || splitName.slice(1).join(" ") || "Unknown";
+    const parts = fullName.trim().split(" ");
+    const firstName = data.firstName || parts[0] || "Unknown";
+    const lastName = data.lastName || parts.slice(1).join(" ") || "Unknown";
 
     const email = data.email || "test@test.com";
     const phone = data.phone || data.phoneNumber || "0000000000";
@@ -21,22 +21,8 @@ export default async function handler(req, res) {
       "Unknown Address";
 
     const query = `
-      mutation CreateClient(
-        $firstName: String!,
-        $lastName: String!,
-        $email: String!,
-        $phone: String!,
-        $street1: String!
-      ) {
-        clientCreate(
-          input: {
-            firstName: $firstName
-            lastName: $lastName
-            emails: [{ address: $email }]
-            phones: [{ number: $phone }]
-            billingAddress: { street1: $street1 }
-          }
-        ) {
+      mutation CreateClient($input: ClientCreateInput!) {
+        clientCreate(input: $input) {
           client {
             id
             firstName
@@ -47,11 +33,15 @@ export default async function handler(req, res) {
     `;
 
     const variables = {
-      firstName,
-      lastName,
-      email,
-      phone,
-      street1: address
+      input: {
+        firstName,
+        lastName,
+        emails: [{ address: email }],
+        phones: [{ number: phone }],
+        billingAddress: {
+          street1: address
+        }
+      }
     };
 
     console.log("JOBBER VARIABLES:", JSON.stringify(variables));
@@ -59,21 +49,21 @@ export default async function handler(req, res) {
     const response = await fetch("https://api.getjobber.com/api/graphql", {
       method: "POST",
       headers: {
-        Authorization: "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjM2MzU5MzYsImlzcyI6Imh0dHBzOi8vYXBpLmdldGpvYmJlci5jb20iLCJjbGllbnRfaWQiOiJhMzM4NWFiYi1iNWI0LTQ4NjctODIzZi0xMTgzM2E1MjFiYzkiLCJzY29wZSI6InJlYWRfY2xpZW50cyB3cml0ZV9jbGllbnRzIHJlYWRfcXVvdGVzIHdyaXRlX3F1b3RlcyByZWFkX2pvYnMgd3JpdGVfam9icyByZWFkX2ludm9pY2VzIHdyaXRlX2ludm9pY2VzIHJlYWRfam9iYmVyX3BheW1lbnRzIiwiYXBwX2lkIjoiYTMzODVhYmItYjViNC00ODY3LTgyM2YtMTE4MzNhNTIxYmM5IiwidXNlcl9pZCI6MzYzNTkzNiwiYWNjb3VudF9pZCI6MjE0NDQ3MywiZXhwIjoxNzc2MTM0MDY4fQ.SVNKtHq0wkQLZ70GW6PVQHWG35OcWEejaZWZO9gNPC8",
+        Authorization: "Bearer YOUR_NEW_TOKEN_HERE",
         "X-JOBBER-GRAPHQL-VERSION": "2025-04-16",
         "Content-Type": "application/json"
       },
       body: JSON.stringify({ query, variables })
     });
 
-    const result = await response.json();
+    const text = await response.text();
     console.log("JOBBER STATUS:", response.status);
-    console.log("JOBBER RESPONSE:", JSON.stringify(result));
+    console.log("JOBBER RAW RESPONSE:", text);
 
     return res.status(200).json({
       success: true,
       jobberStatus: response.status,
-      jobber: result
+      jobberRaw: text
     });
   } catch (error) {
     console.error("ERROR:", error);
