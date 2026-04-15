@@ -7,13 +7,12 @@ export default async function handler(req, res) {
     const data = req.body || {};
     console.log("WEBHOOK HIT:", JSON.stringify(data));
 
-    // Pull fields from Repcard
+    // Repcard field mapping
     const fullName = (data.name || "").trim();
     const parts = fullName.split(/\s+/).filter(Boolean);
 
     const firstName = data.firstName || parts[0] || "Unknown";
     const lastName = data.lastName || parts.slice(1).join(" ") || "Unknown";
-
     const email = data.email || "noemail@example.com";
     const phone = data.phone || data.phoneNumber || "";
     const address =
@@ -25,22 +24,24 @@ export default async function handler(req, res) {
     const jobCost = Number(data["Job cost"] || data.jobCost || data.price || 0);
     const depositAmount = Number((jobCost * 0.5).toFixed(2));
 
-    console.log("MAPPED DATA:", JSON.stringify({
-      firstName,
-      lastName,
-      email,
-      phone,
-      address,
-      jobCost,
-      depositAmount
-    }));
+    console.log(
+      "MAPPED DATA:",
+      JSON.stringify({
+        firstName,
+        lastName,
+        email,
+        phone,
+        address,
+        jobCost,
+        depositAmount
+      })
+    );
 
-    // Helper for Jobber API calls
     async function jobberRequest(query, variables = {}) {
       const response = await fetch("https://api.getjobber.com/api/graphql", {
         method: "POST",
         headers: {
-          Authorization: "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjM2MzU5MzYsImlzcyI6Imh0dHBzOi8vYXBpLmdldGpvYmJlci5jb20iLCJjbGllbnRfaWQiOiJhMzM4NWFiYi1iNWI0LTQ4NjctODIzZi0xMTgzM2E1MjFiYzkiLCJzY29wZSI6InJlYWRfY2xpZW50cyB3cml0ZV9jbGllbnRzIHJlYWRfcXVvdGVzIHdyaXRlX3F1b3RlcyByZWFkX2pvYnMgd3JpdGVfam9icyByZWFkX2ludm9pY2VzIHdyaXRlX2ludm9pY2VzIHJlYWRfam9iYmVyX3BheW1lbnRzIiwiYXBwX2lkIjoiYTMzODVhYmItYjViNC00ODY3LTgyM2YtMTE4MzNhNTIxYmM5IiwidXNlcl9pZCI6MzYzNTkzNiwiYWNjb3VudF9pZCI6MjE0NDQ3MywiZXhwIjoxNzc2Mjg3ODM4fQ.8xe6ddFd5gOgUYU0wtddA7-6bFHTVC9kWzKyYz4l2EY",
+          Authorization: "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjM2MzU5MzYsImlzcyI6Imh0dHBzOi8vYXBpLmdldGpvYmJlci5jb20iLCJjbGllbnRfaWQiOiJhMzM4NWFiYi1iNWI0LTQ4NjctODIzZi0xMTgzM2E1MjFiYzkiLCJzY29wZSI6InJlYWRfY2xpZW50cyB3cml0ZV9jbGllbnRzIHJlYWRfcXVvdGVzIHdyaXRlX3F1b3RlcyByZWFkX2pvYnMgd3JpdGVfam9icyByZWFkX2ludm9pY2VzIHdyaXRlX2ludm9pY2VzIHJlYWRfam9iYmVyX3BheW1lbnRzIiwiYXBwX2lkIjoiYTMzODVhYmItYjViNC00ODY3LTgyM2YtMTE4MzNhNTIxYmM5IiwidXNlcl9pZCI6MzYzNTkzNiwiYWNjb3VudF9pZCI6MjE0NDQ3MywiZXhwIjoxNzc2Mjg5NzYyfQ.84niKTl_TLJr5_MN3HSG58be3DRhB7QX80KUKmsn3KU",
           "X-JOBBER-GRAPHQL-VERSION": "2025-04-16",
           "Content-Type": "application/json"
         },
@@ -102,7 +103,9 @@ export default async function handler(req, res) {
 
     const clientCreate = clientResult?.data?.clientCreate;
     if (clientCreate?.userErrors?.length) {
-      throw new Error(`Client create userErrors: ${JSON.stringify(clientCreate.userErrors)}`);
+      throw new Error(
+        `Client create userErrors: ${JSON.stringify(clientCreate.userErrors)}`
+      );
     }
 
     const clientId = clientCreate?.client?.id;
@@ -113,14 +116,13 @@ export default async function handler(req, res) {
     console.log("CLIENT ID:", clientId);
 
     // 2) Create job
-    // Mutation name/fields may vary by schema; GraphiQL is the source of truth.
+    // Jobber's schema changes; this matches the current pattern that your logs were pointing to.
     const createJobQuery = `
-      mutation CreateJob($input: JobCreateInput!) {
-        jobCreate(input: $input) {
+      mutation CreateJob($input: JobCreateAttributes!) {
+        jobCreate(attributes: $input) {
           job {
             id
             title
-            total
           }
           userErrors {
             message
@@ -132,8 +134,7 @@ export default async function handler(req, res) {
 
     const jobInput = {
       clientId,
-      title: "LumiLuxe Install",
-      total: jobCost
+      title: "LumiLuxe Install"
     };
 
     const jobResult = await jobberRequest(createJobQuery, {
@@ -142,7 +143,9 @@ export default async function handler(req, res) {
 
     const jobCreate = jobResult?.data?.jobCreate;
     if (jobCreate?.userErrors?.length) {
-      throw new Error(`Job create userErrors: ${JSON.stringify(jobCreate.userErrors)}`);
+      throw new Error(
+        `Job create userErrors: ${JSON.stringify(jobCreate.userErrors)}`
+      );
     }
 
     const jobId = jobCreate?.job?.id;
@@ -152,10 +155,11 @@ export default async function handler(req, res) {
 
     console.log("JOB ID:", jobId);
 
-    // 3) Create 50% deposit invoice
+    // 3) Create invoice for 50% deposit
+    // If this mutation name/type differs in your schema, Vercel logs will show the exact mismatch.
     const createInvoiceQuery = `
-      mutation CreateInvoice($input: InvoiceCreateInput!) {
-        invoiceCreate(input: $input) {
+      mutation CreateInvoice($input: InvoiceCreateAttributes!) {
+        invoiceCreate(attributes: $input) {
           invoice {
             id
             subject
@@ -170,7 +174,8 @@ export default async function handler(req, res) {
 
     const invoiceInput = {
       clientId,
-      jobId,
+      jobs: [jobId],
+      subject: "50% Deposit",
       lineItems: [
         {
           name: "50% Deposit",
@@ -186,7 +191,9 @@ export default async function handler(req, res) {
 
     const invoiceCreate = invoiceResult?.data?.invoiceCreate;
     if (invoiceCreate?.userErrors?.length) {
-      throw new Error(`Invoice create userErrors: ${JSON.stringify(invoiceCreate.userErrors)}`);
+      throw new Error(
+        `Invoice create userErrors: ${JSON.stringify(invoiceCreate.userErrors)}`
+      );
     }
 
     const invoiceId = invoiceCreate?.invoice?.id;
@@ -215,7 +222,9 @@ export default async function handler(req, res) {
 
     const invoiceSend = sendResult?.data?.invoiceSend;
     if (invoiceSend?.userErrors?.length) {
-      throw new Error(`Invoice send userErrors: ${JSON.stringify(invoiceSend.userErrors)}`);
+      throw new Error(
+        `Invoice send userErrors: ${JSON.stringify(invoiceSend.userErrors)}`
+      );
     }
 
     return res.status(200).json({
