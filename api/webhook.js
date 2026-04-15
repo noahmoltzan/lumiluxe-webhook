@@ -7,7 +7,6 @@ export default async function handler(req, res) {
     const data = req.body || {};
     console.log("WEBHOOK HIT:", JSON.stringify(data));
 
-    // Repcard field mapping
     const fullName = (data.name || "").trim();
     const parts = fullName.split(/\s+/).filter(Boolean);
 
@@ -66,7 +65,7 @@ export default async function handler(req, res) {
       return parsed;
     }
 
-    // 1) Create client
+    // 1) CREATE CLIENT
     const clientInput = {
       firstName,
       lastName,
@@ -115,11 +114,10 @@ export default async function handler(req, res) {
 
     console.log("CLIENT ID:", clientId);
 
-    // 2) Create job
-    // Jobber's schema changes; this matches the current pattern that your logs were pointing to.
+    // 2) CREATE JOB
     const createJobQuery = `
-      mutation CreateJob($input: JobCreateAttributes!) {
-        jobCreate(attributes: $input) {
+      mutation CreateJob($input: JobCreateInput!) {
+        jobCreate(input: $input) {
           job {
             id
             title
@@ -133,7 +131,7 @@ export default async function handler(req, res) {
     `;
 
     const jobInput = {
-      clientId,
+      clientId: clientId,
       title: "LumiLuxe Install"
     };
 
@@ -155,11 +153,10 @@ export default async function handler(req, res) {
 
     console.log("JOB ID:", jobId);
 
-    // 3) Create invoice for 50% deposit
-    // If this mutation name/type differs in your schema, Vercel logs will show the exact mismatch.
+    // 3) CREATE 50% DEPOSIT INVOICE
     const createInvoiceQuery = `
-      mutation CreateInvoice($input: InvoiceCreateAttributes!) {
-        invoiceCreate(attributes: $input) {
+      mutation CreateInvoice($input: InvoiceCreateInput!) {
+        invoiceCreate(input: $input) {
           invoice {
             id
             subject
@@ -173,9 +170,8 @@ export default async function handler(req, res) {
     `;
 
     const invoiceInput = {
-      clientId,
-      jobs: [jobId],
-      subject: "50% Deposit",
+      clientId: clientId,
+      jobId: jobId,
       lineItems: [
         {
           name: "50% Deposit",
@@ -203,7 +199,7 @@ export default async function handler(req, res) {
 
     console.log("INVOICE ID:", invoiceId);
 
-    // 4) Send invoice
+    // 4) SEND INVOICE
     const sendInvoiceQuery = `
       mutation SendInvoice($invoiceId: EncodedId!) {
         invoiceSend(id: $invoiceId) {
