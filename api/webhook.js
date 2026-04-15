@@ -7,11 +7,13 @@ export default async function handler(req, res) {
     const data = req.body || {};
     console.log("WEBHOOK HIT:", JSON.stringify(data));
 
+    // Pull fields from Repcard
     const fullName = (data.name || "").trim();
     const parts = fullName.split(/\s+/).filter(Boolean);
 
     const firstName = data.firstName || parts[0] || "Unknown";
     const lastName = data.lastName || parts.slice(1).join(" ") || "Unknown";
+
     const email = data.email || "noemail@example.com";
     const phone = data.phone || data.phoneNumber || "";
     const address =
@@ -20,21 +22,65 @@ export default async function handler(req, res) {
       data.appointmentLocation ||
       "";
 
-    const input = {
+    const jobCost = Number(data["Job cost"] || data.jobCost || data.price || 0);
+    const depositAmount = Number((jobCost * 0.5).toFixed(2));
+
+    console.log("MAPPED DATA:", JSON.stringify({
+      firstName,
+      lastName,
+      email,
+      phone,
+      address,
+      jobCost,
+      depositAmount
+    }));
+
+    // Helper for Jobber API calls
+    async function jobberRequest(query, variables = {}) {
+      const response = await fetch("https://api.getjobber.com/api/graphql", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjM2MzU5MzYsImlzcyI6Imh0dHBzOi8vYXBpLmdldGpvYmJlci5jb20iLCJjbGllbnRfaWQiOiJhMzM4NWFiYi1iNWI0LTQ4NjctODIzZi0xMTgzM2E1MjFiYzkiLCJzY29wZSI6InJlYWRfY2xpZW50cyB3cml0ZV9jbGllbnRzIHJlYWRfcXVvdGVzIHdyaXRlX3F1b3RlcyByZWFkX2pvYnMgd3JpdGVfam9icyByZWFkX2ludm9pY2VzIHdyaXRlX2ludm9pY2VzIHJlYWRfam9iYmVyX3BheW1lbnRzIiwiYXBwX2lkIjoiYTMzODVhYmItYjViNC00ODY3LTgyM2YtMTE4MzNhNTIxYmM5IiwidXNlcl9pZCI6MzYzNTkzNiwiYWNjb3VudF9pZCI6MjE0NDQ3MywiZXhwIjoxNzc2Mjg3ODM4fQ.8xe6ddFd5gOgUYU0wtddA7-6bFHTVC9kWzKyYz4l2EY",
+          "X-JOBBER-GRAPHQL-VERSION": "2025-04-16",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ query, variables })
+      });
+
+      const raw = await response.text();
+      console.log("JOBBER STATUS:", response.status);
+      console.log("JOBBER RAW RESPONSE:", raw);
+
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = { raw };
+      }
+
+      if (!response.ok || parsed.errors) {
+        throw new Error(`Jobber error: ${raw}`);
+      }
+
+      return parsed;
+    }
+
+    // 1) Create client
+    const clientInput = {
       firstName,
       lastName,
       emails: [{ address: email }]
     };
 
     if (phone) {
-      input.phones = [{ number: phone }];
+      clientInput.phones = [{ number: phone }];
     }
 
     if (address) {
-      input.billingAddress = { street1: address };
+      clientInput.billingAddress = { street1: address };
     }
 
-    const query = `
+    const createClientQuery = `
       mutation CreateClient($input: ClientCreateInput!) {
         clientCreate(input: $input) {
           client {
@@ -50,27 +96,134 @@ export default async function handler(req, res) {
       }
     `;
 
-    const response = await fetch("https://api.getjobber.com/api/graphql", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjM2MzU5MzYsImlzcyI6Imh0dHBzOi8vYXBpLmdldGpvYmJlci5jb20iLCJjbGllbnRfaWQiOiJhMzM4NWFiYi1iNWI0LTQ4NjctODIzZi0xMTgzM2E1MjFiYzkiLCJzY29wZSI6InJlYWRfY2xpZW50cyB3cml0ZV9jbGllbnRzIHJlYWRfcXVvdGVzIHdyaXRlX3F1b3RlcyByZWFkX2pvYnMgd3JpdGVfam9icyByZWFkX2ludm9pY2VzIHdyaXRlX2ludm9pY2VzIHJlYWRfam9iYmVyX3BheW1lbnRzIiwiYXBwX2lkIjoiYTMzODVhYmItYjViNC00ODY3LTgyM2YtMTE4MzNhNTIxYmM5IiwidXNlcl9pZCI6MzYzNTkzNiwiYWNjb3VudF9pZCI6MjE0NDQ3MywiZXhwIjoxNzc2Mjg3ODM4fQ.8xe6ddFd5gOgUYU0wtddA7-6bFHTVC9kWzKyYz4l2EY",
-        "X-JOBBER-GRAPHQL-VERSION": "2025-04-16",
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        query,
-        variables: { input }
-      })
+    const clientResult = await jobberRequest(createClientQuery, {
+      input: clientInput
     });
 
-    const raw = await response.text();
-    console.log("JOBBER STATUS:", response.status);
-    console.log("JOBBER RAW RESPONSE:", raw);
+    const clientCreate = clientResult?.data?.clientCreate;
+    if (clientCreate?.userErrors?.length) {
+      throw new Error(`Client create userErrors: ${JSON.stringify(clientCreate.userErrors)}`);
+    }
+
+    const clientId = clientCreate?.client?.id;
+    if (!clientId) {
+      throw new Error("Client was not created.");
+    }
+
+    console.log("CLIENT ID:", clientId);
+
+    // 2) Create job
+    // Mutation name/fields may vary by schema; GraphiQL is the source of truth.
+    const createJobQuery = `
+      mutation CreateJob($input: JobCreateInput!) {
+        jobCreate(input: $input) {
+          job {
+            id
+            title
+            total
+          }
+          userErrors {
+            message
+            path
+          }
+        }
+      }
+    `;
+
+    const jobInput = {
+      clientId,
+      title: "LumiLuxe Install",
+      total: jobCost
+    };
+
+    const jobResult = await jobberRequest(createJobQuery, {
+      input: jobInput
+    });
+
+    const jobCreate = jobResult?.data?.jobCreate;
+    if (jobCreate?.userErrors?.length) {
+      throw new Error(`Job create userErrors: ${JSON.stringify(jobCreate.userErrors)}`);
+    }
+
+    const jobId = jobCreate?.job?.id;
+    if (!jobId) {
+      throw new Error("Job was not created.");
+    }
+
+    console.log("JOB ID:", jobId);
+
+    // 3) Create 50% deposit invoice
+    const createInvoiceQuery = `
+      mutation CreateInvoice($input: InvoiceCreateInput!) {
+        invoiceCreate(input: $input) {
+          invoice {
+            id
+            subject
+          }
+          userErrors {
+            message
+            path
+          }
+        }
+      }
+    `;
+
+    const invoiceInput = {
+      clientId,
+      jobId,
+      lineItems: [
+        {
+          name: "50% Deposit",
+          quantity: 1,
+          unitPrice: depositAmount
+        }
+      ]
+    };
+
+    const invoiceResult = await jobberRequest(createInvoiceQuery, {
+      input: invoiceInput
+    });
+
+    const invoiceCreate = invoiceResult?.data?.invoiceCreate;
+    if (invoiceCreate?.userErrors?.length) {
+      throw new Error(`Invoice create userErrors: ${JSON.stringify(invoiceCreate.userErrors)}`);
+    }
+
+    const invoiceId = invoiceCreate?.invoice?.id;
+    if (!invoiceId) {
+      throw new Error("Invoice was not created.");
+    }
+
+    console.log("INVOICE ID:", invoiceId);
+
+    // 4) Send invoice
+    const sendInvoiceQuery = `
+      mutation SendInvoice($invoiceId: EncodedId!) {
+        invoiceSend(id: $invoiceId) {
+          success
+          userErrors {
+            message
+            path
+          }
+        }
+      }
+    `;
+
+    const sendResult = await jobberRequest(sendInvoiceQuery, {
+      invoiceId
+    });
+
+    const invoiceSend = sendResult?.data?.invoiceSend;
+    if (invoiceSend?.userErrors?.length) {
+      throw new Error(`Invoice send userErrors: ${JSON.stringify(invoiceSend.userErrors)}`);
+    }
 
     return res.status(200).json({
       success: true,
-      jobberStatus: response.status,
-      jobberRaw: raw
+      createdClientId: clientId,
+      createdJobId: jobId,
+      createdInvoiceId: invoiceId,
+      depositAmount
     });
   } catch (error) {
     console.error("WEBHOOK ERROR:", error);
