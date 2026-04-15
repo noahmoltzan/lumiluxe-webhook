@@ -1,24 +1,40 @@
 export default async function handler(req, res) {
-  try {
-    if (req.method !== "POST") {
-      return res.status(405).json({ error: "Method not allowed" });
-    }
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
 
+  try {
     const data = req.body || {};
     console.log("WEBHOOK HIT:", JSON.stringify(data));
 
-    const fullName = data.name || "";
-    const parts = fullName.trim().split(" ");
+    // Repcard payload mapping
+    const fullName = (data.name || "").trim();
+    const parts = fullName.split(/\s+/).filter(Boolean);
+
     const firstName = data.firstName || parts[0] || "Unknown";
     const lastName = data.lastName || parts.slice(1).join(" ") || "Unknown";
-
-    const email = data.email || "test@test.com";
-    const phone = data.phone || data.phoneNumber || "0000000000";
+    const email = data.email || "noemail@example.com";
+    const phone = data.phone || data.phoneNumber || "";
     const address =
       data.address ||
       data.appointment_location ||
       data.appointmentLocation ||
-      "Unknown Address";
+      "";
+
+    // Build client input safely
+    const input = {
+      firstName,
+      lastName,
+      emails: [{ address: email }],
+    };
+
+    if (phone) {
+      input.phones = [{ number: phone }];
+    }
+
+    if (address) {
+      input.billingAddress = { street1: address };
+    }
 
     const query = `
       mutation CreateClient($input: ClientCreateInput!) {
@@ -28,48 +44,49 @@ export default async function handler(req, res) {
             firstName
             lastName
           }
+          userErrors {
+            message
+            path
+          }
         }
       }
     `;
 
-    const variables = {
-      input: {
-        firstName,
-        lastName,
-        emails: [{ address: email }],
-        phones: [{ number: phone }],
-        billingAddress: {
-          street1: address
-        }
-      }
-    };
-
-    console.log("JOBBER VARIABLES:", JSON.stringify(variables));
-
     const response = await fetch("https://api.getjobber.com/api/graphql", {
       method: "POST",
       headers: {
-        Authorization: "Bearer YOUR_NEW_TOKEN_HERE",
+        Authorization: "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjM2MzU5MzYsImlzcyI6Imh0dHBzOi8vYXBpLmdldGpvYmJlci5jb20iLCJjbGllbnRfaWQiOiJhMzM4NWFiYi1iNWI0LTQ4NjctODIzZi0xMTgzM2E1MjFiYzkiLCJzY29wZSI6InJlYWRfY2xpZW50cyB3cml0ZV9jbGllbnRzIHJlYWRfcXVvdGVzIHdyaXRlX3F1b3RlcyByZWFkX2pvYnMgd3JpdGVfam9icyByZWFkX2ludm9pY2VzIHdyaXRlX2ludm9pY2VzIHJlYWRfam9iYmVyX3BheW1lbnRzIiwiYXBwX2lkIjoiYTMzODVhYmItYjViNC00ODY3LTgyM2YtMTE4MzNhNTIxYmM5IiwidXNlcl9pZCI6MzYzNTkzNiwiYWNjb3VudF9pZCI6MjE0NDQ3MywiZXhwIjoxNzc2Mjg3MzAyfQ.WSRUIMqyRN29wnkaH98C0erZZJ6AdFD0gzOiMbrNBXA",
         "X-JOBBER-GRAPHQL-VERSION": "2025-04-16",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
       },
-      body: JSON.stringify({ query, variables })
+      body: JSON.stringify({
+        query,
+        variables: { input },
+      }),
     });
 
-    const text = await response.text();
+    const raw = await response.text();
     console.log("JOBBER STATUS:", response.status);
-    console.log("JOBBER RAW RESPONSE:", text);
+    console.log("JOBBER RAW RESPONSE:", raw);
+
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = { raw };
+    }
 
     return res.status(200).json({
       success: true,
+      sentToJobber: input,
       jobberStatus: response.status,
-      jobberRaw: text
+      jobberResponse: parsed,
     });
   } catch (error) {
-    console.error("ERROR:", error);
+    console.error("WEBHOOK ERROR:", error);
     return res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 }
